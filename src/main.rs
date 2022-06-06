@@ -6,9 +6,9 @@ use env_logger;
 use std::{convert::TryFrom, path::PathBuf};
 use workspace::ManifestPath;
 
+mod abi;
 mod cargo_manifest;
 mod crate_metadata;
-mod metadata;
 mod util;
 mod workspace;
 
@@ -30,14 +30,14 @@ pub(crate) struct NearArgs {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Generates metadata for the contract
-    #[clap(name = "metadata")]
-    Metadata(MetadataCommand),
+    /// Generates ABI for the contract
+    #[clap(name = "abi")]
+    Abi(AbiCommand),
 }
 
 #[derive(Debug, clap::Args)]
-#[clap(name = "metadata")]
-pub struct MetadataCommand {
+#[clap(name = "abi")]
+pub struct AbiCommand {
     /// Path to the `Cargo.toml` of the contract to build
     #[clap(long, parse(from_os_str))]
     manifest_path: Option<PathBuf>,
@@ -50,7 +50,11 @@ fn main() {
     match exec(args.cmd) {
         Ok(()) => {}
         Err(err) => {
-            eprintln!("{} {}", "ERROR:".bright_red().bold(), format!("{:?}", err).bright_red());
+            eprintln!(
+                "{} {}",
+                "ERROR:".bright_red().bold(),
+                format!("{:?}", err).bright_red()
+            );
             std::process::exit(1);
         }
     }
@@ -58,11 +62,11 @@ fn main() {
 
 fn exec(cmd: Command) -> Result<()> {
     match &cmd {
-        Command::Metadata(metadata) => {
-            let manifest_path = ManifestPath::try_from(metadata.manifest_path.as_ref())?;
+        Command::Abi(abi) => {
+            let manifest_path = ManifestPath::try_from(abi.manifest_path.as_ref())?;
             let crate_metadata = CrateMetadata::collect(&manifest_path)?;
 
-            let _ = metadata::execute(&crate_metadata)?;
+            let _ = abi::execute(&crate_metadata)?;
             Ok(())
         }
     }

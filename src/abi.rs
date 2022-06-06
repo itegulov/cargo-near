@@ -6,13 +6,13 @@ use near_sdk::__private::{AbiMetainfo, AbiRoot};
 use std::collections::HashMap;
 use std::{fs, path::PathBuf};
 
-const METADATA_FILE: &str = "abi.json";
+const ABI_FILE: &str = "abi.json";
 
-/// Metadata generation result.
+/// ABI generation result.
 #[derive(serde::Serialize)]
-pub struct MetadataResult {
-    /// Path to the resulting metadata file.
-    pub dest_metadata: PathBuf,
+pub struct AbiResult {
+    /// Path to the resulting ABI file.
+    pub dest_abi: PathBuf,
 }
 
 fn extract_metainfo(crate_metadata: &CrateMetadata) -> AbiMetainfo {
@@ -25,11 +25,11 @@ fn extract_metainfo(crate_metadata: &CrateMetadata) -> AbiMetainfo {
     }
 }
 
-pub(crate) fn execute(crate_metadata: &CrateMetadata) -> Result<MetadataResult> {
+pub(crate) fn execute(crate_metadata: &CrateMetadata) -> Result<AbiResult> {
     let target_directory = crate_metadata.target_directory.clone();
-    let out_path_metadata = target_directory.join(METADATA_FILE);
+    let out_path_abi = target_directory.join(ABI_FILE);
 
-    let generate_metadata = |manifest_path: &ManifestPath| -> Result<()> {
+    let generate_abi = |manifest_path: &ManifestPath| -> Result<()> {
         let target_dir_arg = format!("--target-dir={}", target_directory.to_string_lossy());
         let stdout = util::invoke_cargo(
             "run",
@@ -48,18 +48,22 @@ pub(crate) fn execute(crate_metadata: &CrateMetadata) -> Result<MetadataResult> 
         let metainfo = extract_metainfo(&crate_metadata);
         near_abi.metainfo = metainfo;
         let near_abi_json = serde_json::to_string_pretty(&near_abi)?;
-        fs::write(&out_path_metadata, near_abi_json)?;
+        fs::write(&out_path_abi, near_abi_json)?;
 
         Ok(())
     };
 
     Workspace::new(&crate_metadata.cargo_meta, &crate_metadata.root_package.id)?
         .with_root_package_manifest(|manifest| {
-            manifest.with_added_crate_type("rlib")?.with_profile_release_lto(false)?;
+            manifest
+                .with_added_crate_type("rlib")?
+                .with_profile_release_lto(false)?;
             Ok(())
         })?
         .with_metadata_gen_package(crate_metadata.manifest_path.absolute_directory()?)?
-        .using_temp(generate_metadata)?;
+        .using_temp(generate_abi)?;
 
-    Ok(MetadataResult { dest_metadata: out_path_metadata })
+    Ok(AbiResult {
+        dest_abi: out_path_abi,
+    })
 }
