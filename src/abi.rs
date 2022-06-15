@@ -2,7 +2,7 @@ use crate::crate_metadata::CrateMetadata;
 use crate::util;
 use crate::workspace::{ManifestPath, Workspace};
 use anyhow::Result;
-use near_sdk::__private::{AbiMetainfo, AbiRoot};
+use near_sdk::__private::{AbiMetadata, AbiRoot};
 use std::collections::HashMap;
 use std::{fs, path::PathBuf};
 
@@ -15,9 +15,9 @@ pub struct AbiResult {
     pub dest_abi: PathBuf,
 }
 
-fn extract_metainfo(crate_metadata: &CrateMetadata) -> AbiMetainfo {
+fn extract_metadata(crate_metadata: &CrateMetadata) -> AbiMetadata {
     let package = &crate_metadata.root_package;
-    AbiMetainfo {
+    AbiMetadata {
         name: Some(package.name.clone()),
         version: Some(package.version.to_string()),
         authors: package.authors.clone(),
@@ -45,8 +45,8 @@ pub(crate) fn execute(crate_metadata: &CrateMetadata) -> Result<AbiResult> {
         )?;
 
         let mut near_abi: AbiRoot = serde_json::from_slice(&stdout)?;
-        let metainfo = extract_metainfo(&crate_metadata);
-        near_abi.metainfo = metainfo;
+        let metadata = extract_metadata(&crate_metadata);
+        near_abi.metadata = metadata;
         let near_abi_json = serde_json::to_string_pretty(&near_abi)?;
         fs::write(&out_path_abi, near_abi_json)?;
 
