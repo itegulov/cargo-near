@@ -3,7 +3,7 @@ use crate::util;
 use crate::workspace::{ManifestPath, Workspace};
 use anyhow::Result;
 use near_sdk::__private::{AbiMetadata, AbiRoot};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::{fs, path::PathBuf};
 
 const ABI_FILE: &str = "abi.json";
@@ -53,15 +53,39 @@ pub(crate) fn execute(crate_metadata: &CrateMetadata) -> Result<AbiResult> {
         Ok(())
     };
 
-    Workspace::new(&crate_metadata.cargo_meta, &crate_metadata.root_package.id)?
-        .with_root_package_manifest(|manifest| {
-            manifest
-                .with_added_crate_type("rlib")?
-                .with_profile_release_lto(false)?;
-            Ok(())
-        })?
-        .with_metadata_gen_package(crate_metadata.manifest_path.absolute_directory()?)?
-        .using_temp(generate_abi)?;
+    let lib_file_path = util::compile_project(crate_metadata)?;
+    let lib_file_contents = fs::read(&lib_file_path)?;
+    let object = symbolic_debuginfo::Object::parse(&lib_file_contents)?;
+    log::debug!(
+        "A shared library was built at {:?} with format {} for architecture {}",
+        &lib_file_path,
+        &object.file_format(),
+        &object.arch()
+    );
+    let near_abi_symbols = object
+        .symbols()
+        .flat_map(|sym| sym.name)
+        .filter(|sym_name| sym_name.starts_with("__near_abi_"))
+        .map(|sym_name| sym_name.to_string())
+        .collect::<HashSet<_>>();
+    log::debug!(
+        "Detected following NEAR ABI symbols: {:?}",
+        &near_abi_symbols
+    );
+
+    Workspace::new(
+        &crate_metadata.cargo_meta,
+        &crate_metadata.root_package.id,
+        near_abi_symbols,
+    )?
+    .with_root_package_manifest(|manifest| {
+        manifest
+            .with_added_crate_type("rlib")?
+            .with_profile_release_lto(false)?;
+        Ok(())
+    })?
+    .with_metadata_gen_package(crate_metadata.manifest_path.absolute_directory()?)?
+    .using_temp(generate_abi)?;
 
     Ok(AbiResult {
         dest_abi: out_path_abi,

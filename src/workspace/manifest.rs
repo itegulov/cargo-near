@@ -24,7 +24,9 @@ impl ManifestPath {
                 anyhow::bail!("Manifest file must be a Cargo.toml")
             }
         }
-        Ok(ManifestPath { path: manifest.into() })
+        Ok(ManifestPath {
+            path: manifest.into(),
+        })
     }
 
     /// Create an arg `--manifest-path=` for `cargo` command
@@ -104,7 +106,11 @@ impl Manifest {
         let toml = fs::read_to_string(&manifest_path).context("Loading Cargo.toml")?;
         let toml: value::Table = toml::from_str(&toml)?;
 
-        Ok(Manifest { path: manifest_path, toml, metadata_package: false })
+        Ok(Manifest {
+            path: manifest_path,
+            toml,
+            metadata_package: false,
+        })
     }
 
     /// Get the path of the manifest file
@@ -114,13 +120,17 @@ impl Manifest {
 
     /// Get mutable reference to `[lib] crate-types = []` section
     fn get_crate_types_mut(&mut self) -> Result<&mut value::Array> {
-        let lib =
-            self.toml.get_mut("lib").ok_or_else(|| anyhow::anyhow!("lib section not found"))?;
+        let lib = self
+            .toml
+            .get_mut("lib")
+            .ok_or_else(|| anyhow::anyhow!("lib section not found"))?;
         let crate_types = lib
             .get_mut("crate-type")
             .ok_or_else(|| anyhow::anyhow!("crate-type section not found"))?;
 
-        crate_types.as_array_mut().ok_or_else(|| anyhow::anyhow!("crate-types should be an Array"))
+        crate_types
+            .as_array_mut()
+            .ok_or_else(|| anyhow::anyhow!("crate-types should be an Array"))
     }
 
     /// Add a value to the `[lib] crate-types = []` section.
@@ -136,26 +146,36 @@ impl Manifest {
 
     /// Set `[profile.release]` lto flag
     pub fn with_profile_release_lto(&mut self, enabled: bool) -> Result<&mut Self> {
-        let lto = self.get_profile_release_table_mut()?.entry("lto").or_insert(enabled.into());
+        let lto = self
+            .get_profile_release_table_mut()?
+            .entry("lto")
+            .or_insert(enabled.into());
         *lto = enabled.into();
         Ok(self)
     }
 
     /// Get mutable reference to `[profile.release]` section
     fn get_profile_release_table_mut(&mut self) -> Result<&mut value::Table> {
-        let profile = self.toml.entry("profile").or_insert(value::Value::Table(Default::default()));
+        let profile = self
+            .toml
+            .entry("profile")
+            .or_insert(value::Value::Table(Default::default()));
         let release = profile
             .as_table_mut()
             .ok_or_else(|| anyhow::anyhow!("profile should be a table"))?
             .entry("release")
             .or_insert(value::Value::Table(Default::default()));
-        release.as_table_mut().ok_or_else(|| anyhow::anyhow!("release should be a table"))
+        release
+            .as_table_mut()
+            .ok_or_else(|| anyhow::anyhow!("release should be a table"))
     }
 
     /// Adds a metadata package to the manifest workspace for generating metadata
     pub fn with_metadata_package(&mut self) -> Result<&mut Self> {
-        let workspace =
-            self.toml.entry("workspace").or_insert(value::Value::Table(Default::default()));
+        let workspace = self
+            .toml
+            .entry("workspace")
+            .or_insert(value::Value::Table(Default::default()));
         let members = workspace
             .as_table_mut()
             .ok_or_else(|| anyhow::anyhow!("workspace should be a table"))?
@@ -185,8 +205,9 @@ impl Manifest {
         S: AsRef<str>,
     {
         let abs_path = self.path.as_ref().canonicalize()?;
-        let abs_dir =
-            abs_path.parent().expect("The manifest path is a file path so has a parent; qed");
+        let abs_dir = abs_path
+            .parent()
+            .expect("The manifest path is a file path so has a parent; qed");
 
         let to_absolute = |value_id: String, existing_path: &mut value::Value| -> Result<()> {
             let path_str = existing_path
@@ -224,8 +245,10 @@ impl Manifest {
                     }
                     let path = abs_dir.join(default_path);
                     log::debug!("Adding default path '{}'", path.display());
-                    table
-                        .insert("path".into(), value::Value::String(path.to_string_lossy().into()));
+                    table.insert(
+                        "path".into(),
+                        value::Value::String(path.to_string_lossy().into()),
+                    );
                     Ok(())
                 }
             }
@@ -250,8 +273,10 @@ impl Manifest {
 
         // Rewrite any dependency relative paths
         if let Some(dependencies) = self.toml.get_mut("dependencies") {
-            let exclude =
-                exclude_deps.into_iter().map(|s| s.as_ref().to_string()).collect::<HashSet<_>>();
+            let exclude = exclude_deps
+                .into_iter()
+                .map(|s| s.as_ref().to_string())
+                .collect::<HashSet<_>>();
             let table = dependencies
                 .as_table_mut()
                 .ok_or_else(|| anyhow::anyhow!("dependencies should be a table"))?;
@@ -276,7 +301,11 @@ impl Manifest {
     }
 
     /// Writes the amended manifest to the given path.
-    pub fn write(&self, manifest_path: &ManifestPath) -> Result<()> {
+    pub fn write(
+        &self,
+        manifest_path: &ManifestPath,
+        near_abi_symbols: &HashSet<String>,
+    ) -> Result<()> {
         if let Some(dir) = manifest_path.directory() {
             fs::create_dir_all(dir).context(format!("Creating directory '{}'", dir.display()))?;
         }
@@ -308,16 +337,26 @@ impl Manifest {
                 .as_table()
                 .ok_or_else(|| anyhow::anyhow!("near-sdk dependency should be a table"))?;
 
-            metadata::generate_package(dir, contract_package_name, near_sdk.clone())?;
+            metadata::generate_package(
+                dir,
+                contract_package_name,
+                near_sdk.clone(),
+                near_abi_symbols,
+            )?;
         }
 
         let updated_toml = toml::to_string(&self.toml)?;
-        log::debug!("Writing updated manifest to '{}'", manifest_path.as_ref().display());
+        log::debug!(
+            "Writing updated manifest to '{}'",
+            manifest_path.as_ref().display()
+        );
         fs::write(manifest_path, updated_toml)?;
         Ok(())
     }
 }
 
 fn crate_type_exists(crate_type: &str, crate_types: &[value::Value]) -> bool {
-    crate_types.iter().any(|v| v.as_str().map_or(false, |s| s == crate_type))
+    crate_types
+        .iter()
+        .any(|v| v.as_str().map_or(false, |s| s == crate_type))
 }

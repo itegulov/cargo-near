@@ -8,7 +8,7 @@ use anyhow::Result;
 use cargo_metadata::{Metadata as CargoMetadata, Package, PackageId};
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
@@ -22,14 +22,22 @@ pub struct Workspace {
     workspace_root: PathBuf,
     root_package: PackageId,
     members: HashMap<PackageId, (Package, Manifest)>,
+    near_abi_symbols: HashSet<String>,
 }
 
 impl Workspace {
     /// Create a new Workspace from the supplied cargo metadata.
-    pub fn new(metadata: &CargoMetadata, root_package: &PackageId) -> Result<Self> {
+    pub fn new(
+        metadata: &CargoMetadata,
+        root_package: &PackageId,
+        near_abi_symbols: HashSet<String>,
+    ) -> Result<Self> {
         let member_manifest = |package_id: &PackageId| -> Result<(PackageId, (Package, Manifest))> {
-            let package =
-                metadata.packages.iter().find(|p| p.id == *package_id).unwrap_or_else(|| {
+            let package = metadata
+                .packages
+                .iter()
+                .find(|p| p.id == *package_id)
+                .unwrap_or_else(|| {
                     panic!(
                         "Package '{}' is a member and should be in the packages list",
                         package_id
@@ -54,6 +62,7 @@ impl Workspace {
             workspace_root: metadata.workspace_root.clone().into(),
             root_package: root_package.clone(),
             members,
+            near_abi_symbols,
         })
     }
 
@@ -126,8 +135,11 @@ impl Workspace {
     ///
     /// Returns the paths of the new manifests.
     pub fn write<P: AsRef<Path>>(&mut self, target: P) -> Result<Vec<(PackageId, ManifestPath)>> {
-        let exclude_member_package_names =
-            self.members.iter().map(|(_, (p, _))| p.name.clone()).collect::<Vec<_>>();
+        let exclude_member_package_names = self
+            .members
+            .iter()
+            .map(|(_, (p, _))| p.name.clone())
+            .collect::<Vec<_>>();
         let mut new_manifest_paths = Vec::new();
         for (package_id, (package, manifest)) in self.members.iter_mut() {
             // replace the original workspace root with the temporary directory
@@ -136,7 +148,7 @@ impl Workspace {
             let new_manifest = ManifestPath::new(new_path)?;
 
             manifest.rewrite_relative_paths(&exclude_member_package_names)?;
-            manifest.write(&new_manifest)?;
+            manifest.write(&new_manifest, &self.near_abi_symbols)?;
 
             new_manifest_paths.push((package_id.clone(), new_manifest));
         }
@@ -149,12 +161,20 @@ impl Workspace {
     where
         F: FnOnce(&ManifestPath) -> Result<()>,
     {
-        let tmp_dir = tempfile::Builder::new().prefix("cargo-contract_").tempdir()?;
+        let tmp_dir = tempfile::Builder::new()
+            .prefix("cargo-contract_")
+            .tempdir()?;
         log::debug!("Using temp workspace at '{}'", tmp_dir.path().display());
         let new_paths = self.write(&tmp_dir)?;
         let root_manifest_path = new_paths
             .iter()
-            .find_map(|(pid, path)| if *pid == self.root_package { Some(path) } else { None })
+            .find_map(|(pid, path)| {
+                if *pid == self.root_package {
+                    Some(path)
+                } else {
+                    None
+                }
+            })
             .expect("root package should be a member of the temp workspace");
         f(root_manifest_path)
     }
